@@ -41,7 +41,7 @@ NIFTY_50 = [
     "HINDALCO.NS", "CIPLA.NS", "DRREDDY.NS", "EICHERMOT.NS", "BRITANNIA.NS",
     "APOLLOHOSP.NS", "DIVISLAB.NS", "BPCL.NS", "HEROMOTOCO.NS", "SBILIFE.NS",
     "HDFCLIFE.NS", "BAJAJ-AUTO.NS", "SHRIRAMFIN.NS", "TATACONSUM.NS",
-    "UPL.NS", "LTIM.NS",
+    "UPL.NS", "LTIM.BO",
 ]
 # Note: index constituents change over time — double check against the latest
 # official Nifty 50 list before relying on this.
