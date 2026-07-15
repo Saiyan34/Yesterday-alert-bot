@@ -1,17 +1,18 @@
 """
-Nifty 50 Alert: Previous Day High/Low Breakout + Volume Spike (AND) -> Telegram
---------------------------------------------------------------------------------
-Alerts you ONLY when BOTH are true for a stock:
+Nifty 50 Alert: Previous Day High/Low Breakout OR Intraday Volume Spike -> Telegram
+------------------------------------------------------------------------------------
+Alerts you when EITHER is true for a stock (OR logic):
   1) Price crosses above yesterday's HIGH, or below yesterday's LOW
-  2) Today's volume is above a set multiple of its recent average volume
+  2) The latest 5-minute candle's volume is a set multiple of the average
+     volume of the last N 5-minute candles (real intraday relative volume,
+     not a full-day-vs-daily-average comparison)
 
 Setup:
 1. Create a bot via @BotFather on Telegram -> get BOT_TOKEN
 2. Get your chat id via @userinfobot -> get CHAT_ID
 3. pip install yfinance requests --break-system-packages
-4. Fill in the CONFIG section below
+4. Fill in the CONFIG section below (or set as env vars on Railway)
 5. Run: python nifty50_breakout_alert.py
-   (Keep it running, or schedule via cron/Task Scheduler during market hours)
 """
 
 import os
@@ -20,13 +21,11 @@ import requests
 import yfinance as yf
 
 # ------------------ CONFIG ------------------
-# Reads from environment variables (set these in Railway) so you never
-# have to put your real token/chat ID in the code itself.
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 CHAT_ID = os.environ.get("CHAT_ID", "YOUR_CHAT_ID_HERE")
 
-VOLUME_MULTIPLE = 2.0          # today's volume must be >= 2x average to count as "spike"
-AVG_WINDOW_DAYS = 20           # window for the average volume
+VOLUME_MULTIPLE = 5.0          # latest 5-min candle must be >= 5x the recent avg 5-min volume
+CANDLE_LOOKBACK = 20           # how many prior 5-min candles to average over
 CHECK_INTERVAL_SECONDS = 300   # check every 5 minutes
 
 # Nifty 50 tickers (Yahoo Finance format, .NS = NSE)
@@ -62,51 +61,66 @@ def send_telegram_message(text: str):
 
 def check_ticker(ticker: str):
     try:
-        data = yf.Ticker(ticker).history(period=f"{AVG_WINDOW_DAYS + 5}d")
-        if data.empty or len(data) < AVG_WINDOW_DAYS + 2:
-            print(f"[{ticker}] not enough data")
+        # Daily data -> used only for yesterday's high/low
+        daily = yf.Ticker(ticker).history(period="10d", interval="1d")
+        if daily.empty or len(daily) < 2:
+            print(f"[{ticker}] not enough daily data")
             return
 
-        prev_day = data.iloc[-2]      # yesterday's candle
-        today = data.iloc[-1]         # today's (in-progress or latest) candle
-
+        prev_day = daily.iloc[-2]
         prev_high = prev_day["High"]
         prev_low = prev_day["Low"]
-        current_price = today["Close"]
 
-        avg_volume = data["Volume"][-(AVG_WINDOW_DAYS + 1):-1].mean()
-        today_volume = today["Volume"]
-        vol_ratio = today_volume / avg_volume if avg_volume else 0
+        # Intraday 5-min data -> used for current price + real intraday volume spike
+        intraday = yf.Ticker(ticker).history(period="5d", interval="5m")
+        if intraday.empty or len(intraday) < CANDLE_LOOKBACK + 1:
+            print(f"[{ticker}] not enough intraday data")
+            return
+
+        current_candle = intraday.iloc[-1]
+        current_price = current_candle["Close"]
+        current_volume = current_candle["Volume"]
+
+        # Average volume of the last N candles, excluding the current one
+        avg_candle_volume = intraday["Volume"].iloc[-(CANDLE_LOOKBACK + 1):-1].mean()
+        vol_ratio = current_volume / avg_candle_volume if avg_candle_volume else 0
         volume_spike = vol_ratio >= VOLUME_MULTIPLE
 
         breakout_up = current_price > prev_high
         breakout_down = current_price < prev_low
 
         print(f"[{ticker}] price={current_price:.2f} prevHigh={prev_high:.2f} "
-              f"prevLow={prev_low:.2f} volRatio={vol_ratio:.2f}x")
+              f"prevLow={prev_low:.2f} 5minVolRatio={vol_ratio:.2f}x")
 
-        today_date = data.index[-1].date()
+        today_date = intraday.index[-1].date()
 
-        if breakout_up and volume_spike:
+        # --- OR logic: any single condition triggers its own alert ---
+        if breakout_up:
             key = f"{ticker}-{today_date}-UP"
             if key not in already_alerted:
-                msg = (
-                    f"📈 Breakout UP: {ticker}\n"
-                    f"Price {current_price:.2f} crossed prev day high {prev_high:.2f}\n"
-                    f"Volume {vol_ratio:.2f}x average (threshold {VOLUME_MULTIPLE}x)"
+                send_telegram_message(
+                    f"Breakout UP: {ticker}\n"
+                    f"Price {current_price:.2f} crossed prev day high {prev_high:.2f}"
                 )
-                send_telegram_message(msg)
                 already_alerted.add(key)
 
-        if breakout_down and volume_spike:
+        if breakout_down:
             key = f"{ticker}-{today_date}-DOWN"
             if key not in already_alerted:
-                msg = (
-                    f"📉 Breakdown: {ticker}\n"
-                    f"Price {current_price:.2f} crossed below prev day low {prev_low:.2f}\n"
-                    f"Volume {vol_ratio:.2f}x average (threshold {VOLUME_MULTIPLE}x)"
+                send_telegram_message(
+                    f"Breakdown: {ticker}\n"
+                    f"Price {current_price:.2f} crossed below prev day low {prev_low:.2f}"
                 )
-                send_telegram_message(msg)
+                already_alerted.add(key)
+
+        if volume_spike:
+            key = f"{ticker}-{today_date}-VOLSPIKE-{intraday.index[-1].strftime('%H%M')}"
+            if key not in already_alerted:
+                send_telegram_message(
+                    f"Volume Spike: {ticker}\n"
+                    f"Latest 5-min volume is {vol_ratio:.2f}x the last {CANDLE_LOOKBACK} candles' average\n"
+                    f"Price: {current_price:.2f}"
+                )
                 already_alerted.add(key)
 
     except Exception as e:
@@ -114,7 +128,7 @@ def check_ticker(ticker: str):
 
 
 def main():
-    print("Starting Nifty 50 breakout + volume alert monitor. Ctrl+C to stop.")
+    print("Starting Nifty 50 breakout OR volume-spike alert monitor. Ctrl+C to stop.")
     while True:
         for ticker in NIFTY_50:
             check_ticker(ticker)
