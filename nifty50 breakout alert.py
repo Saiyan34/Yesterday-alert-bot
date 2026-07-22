@@ -60,6 +60,18 @@ WATCHLIST = NIFTY_50 + COMMODITIES
 already_alerted = set()  # avoids repeat alerts same day/direction
 
 
+def confirmed_up(intraday, level):
+    """True if the last fully completed 5-min candle closed above 'level'."""
+    last_close = intraday["Close"].iloc[-2]
+    return last_close > level
+
+
+def confirmed_down(intraday, level):
+    """True if the last fully completed 5-min candle closed below 'level'."""
+    last_close = intraday["Close"].iloc[-2]
+    return last_close < level
+
+
 def send_telegram_message(text: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
@@ -97,33 +109,36 @@ def check_ticker(ticker: str):
 
         # Intraday 5-min data -> used for current price + real intraday volume spike
         intraday = yf.Ticker(ticker).history(period="5d", interval="5m")
-        if intraday.empty or len(intraday) < CANDLE_LOOKBACK + 1:
+        if intraday.empty or len(intraday) < CANDLE_LOOKBACK + 2:
             print(f"[{ticker}] not enough intraday data")
             return
 
-        current_candle = intraday.iloc[-1]
+        # Use the LAST FULLY COMPLETED 5-min candle (not the one still forming)
+        # so alerts only fire on a confirmed close beyond the level, not a
+        # mid-candle spike that reverses before the candle finishes.
+        current_candle = intraday.iloc[-2]
         current_price = current_candle["Close"]
         current_volume = current_candle["Volume"]
 
-        # Average volume of the last N candles, excluding the current one
-        avg_candle_volume = intraday["Volume"].iloc[-(CANDLE_LOOKBACK + 1):-1].mean()
+        # Average volume of the last N completed candles, excluding current one
+        avg_candle_volume = intraday["Volume"].iloc[-(CANDLE_LOOKBACK + 2):-2].mean()
         vol_ratio = current_volume / avg_candle_volume if avg_candle_volume else 0
         volume_spike = vol_ratio >= VOLUME_MULTIPLE
 
-        breakout_up = current_price > prev_high
-        breakout_down = current_price < prev_low
+        breakout_up = confirmed_up(intraday, prev_high)
+        breakout_down = confirmed_down(intraday, prev_low)
 
-        swing_breakout_up = current_price > swing_high
-        swing_breakout_down = current_price < swing_low
+        swing_breakout_up = confirmed_up(intraday, swing_high)
+        swing_breakout_down = confirmed_down(intraday, swing_low)
 
-        weekly_breakout_up = weekly_high is not None and current_price > weekly_high
-        weekly_breakout_down = weekly_low is not None and current_price < weekly_low
+        weekly_breakout_up = weekly_high is not None and confirmed_up(intraday, weekly_high)
+        weekly_breakout_down = weekly_low is not None and confirmed_down(intraday, weekly_low)
 
         print(f"[{ticker}] price={current_price:.2f} prevHigh={prev_high:.2f} "
               f"prevLow={prev_low:.2f} swingHigh={swing_high:.2f} swingLow={swing_low:.2f} "
               f"5minVolRatio={vol_ratio:.2f}x")
 
-        today_date = intraday.index[-1].date()
+        today_date = intraday.index[-2].date()
 
         # --- OR logic: any single condition triggers its own alert ---
         if breakout_up:
@@ -181,7 +196,7 @@ def check_ticker(ticker: str):
                 already_alerted.add(key)
 
         if volume_spike:
-            key = f"{ticker}-{today_date}-VOLSPIKE-{intraday.index[-1].strftime('%H%M')}"
+            key = f"{ticker}-{today_date}-VOLSPIKE-{intraday.index[-2].strftime('%H%M')}"
             if key not in already_alerted:
                 send_telegram_message(
                     f"🟡 Volume Spike: {ticker}\n"
