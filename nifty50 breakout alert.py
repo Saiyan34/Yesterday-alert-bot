@@ -1,5 +1,5 @@
 """
-Nifty Next 50 + Nifty Midcap 50 + Gold + Silver Alert
+Nifty 50 + Nifty Next 50 (Nifty 100) + Gold + Silver Alert
 --------------------------------------------------------------------------------
 Alerts you when EITHER is true for an instrument (OR logic):
   1) A completed 5-min candle CLOSES above yesterday's HIGH, or below yesterday's LOW
@@ -46,18 +46,19 @@ NIFTY_NEXT_50 = [
     "DMART.NS", "ADANIENSOL.NS", "ADANIGREEN.NS", "TMCV.NS", "ENRIN.NS",
 ]
 
-# Nifty Midcap 50
-NIFTY_MIDCAP_50 = [
-    "ASHOKLEY.NS", "BHARATFORG.NS", "COLPAL.NS", "HEROMOTOCO.NS", "MFSL.NS",
-    "SRF.NS", "SUPREMEIND.NS", "HINDPETRO.NS", "BHEL.NS", "UPL.NS",
-    "LUPIN.NS", "HAVELLS.NS", "MPHASIS.NS", "DABUR.NS", "FEDERALBNK.NS",
-    "AUROPHARMA.NS", "OIL.NS", "INDUSINDBK.NS", "PHOENIXLTD.NS", "NMDC.NS",
-    "APLAPOLLO.NS", "NHPC.NS", "MARICO.NS", "PRESTIGE.NS", "SUZLON.NS",
-    "GODREJPROP.NS", "PERSISTENT.NS", "NAUKRI.NS", "ALKEM.NS", "SBICARD.NS",
-    "BSE.NS", "ICICIGI.NS", "GMRAIRPORT.NS", "FORTIS.NS", "COFORGE.NS",
-    "YESBANK.NS", "MCX.NS", "POLYCAB.NS", "AUBANK.NS", "DIXON.NS",
-    "MANKIND.NS", "WAAREEENER.NS", "PAYTM.NS", "INDUSTOWER.NS", "TIINDIA.NS",
-    "POLICYBZR.NS", "LAURUSLABS.NS", "IDFCFIRSTB.NS", "SWIGGY.NS", "NYKAA.NS",
+# Nifty 50 (top 50 by market cap)
+NIFTY_50 = [
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
+    "HINDUNILVR.NS", "ITC.NS", "SBIN.NS", "BHARTIARTL.NS", "BAJFINANCE.NS",
+    "KOTAKBANK.NS", "LT.NS", "AXISBANK.NS", "ASIANPAINT.NS", "MARUTI.NS",
+    "SUNPHARMA.NS", "TITAN.NS", "ULTRACEMCO.NS", "NESTLEIND.NS", "WIPRO.NS",
+    "ADANIENT.NS", "ADANIPORTS.NS", "BAJAJFINSV.NS", "HCLTECH.NS", "NTPC.NS",
+    "POWERGRID.NS", "M&M.NS", "TATAMOTORS.NS", "TATASTEEL.NS", "JSWSTEEL.NS",
+    "ONGC.NS", "COALINDIA.NS", "GRASIM.NS", "INDUSINDBK.NS", "TECHM.NS",
+    "HINDALCO.NS", "CIPLA.NS", "DRREDDY.NS", "EICHERMOT.NS", "BRITANNIA.NS",
+    "APOLLOHOSP.NS", "DIVISLAB.NS", "BPCL.NS", "HEROMOTOCO.NS", "SBILIFE.NS",
+    "HDFCLIFE.NS", "BAJAJ-AUTO.NS", "SHRIRAMFIN.NS", "TATACONSUM.NS",
+    "UPL.NS", "LTIM.BO",
 ]
 
 # Gold & Silver futures (COMEX, via Yahoo Finance) — have real volume data
@@ -66,7 +67,7 @@ COMMODITIES = [
     "SI=F",  # Silver futures
 ]
 
-WATCHLIST = NIFTY_NEXT_50 + NIFTY_MIDCAP_50 + COMMODITIES
+WATCHLIST = NIFTY_50 + NIFTY_NEXT_50 + COMMODITIES
 # Note: index constituents change over time — double check against the latest
 # official lists before relying on this.
 # ---------------------------------------------
@@ -160,7 +161,7 @@ def check_ticker(ticker: str):
 
 
 def main():
-    print("Starting Next50 + Midcap50 + Gold/Silver alert monitor. Ctrl+C to stop.")
+    print("Starting Nifty 100 + Gold/Silver alert monitor. Ctrl+C to stop.")
     while True:
         for ticker in WATCHLIST:
             check_ticker(ticker)
