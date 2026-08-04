@@ -67,7 +67,26 @@ COMMODITIES = [
     "SI=F",  # Silver futures
 ]
 
-WATCHLIST = NIFTY_50 + NIFTY_NEXT_50 + COMMODITIES
+# Bank Nifty constituents (12 major banking stocks)
+BANK_NIFTY = [
+    "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS",
+    "INDUSINDBK.NS", "BANKBARODA.NS", "PNB.NS", "IDFCFIRSTB.NS", "AUBANK.NS",
+    "FEDERALBNK.NS", "CANBK.NS",
+]
+
+# Dedup: some Bank Nifty / Next 50 stocks overlap with Nifty 50, so we
+# avoid checking (and alerting on) the same ticker twice.
+WATCHLIST = list(dict.fromkeys(NIFTY_50 + NIFTY_NEXT_50 + BANK_NIFTY + COMMODITIES))
+
+PCT_MOVE_THRESHOLD = 1.0       # alert if price is +/- this % vs yesterday's close
+VWAP_DEVIATION_PCT = 1.0       # alert if price is +/- this % vs today's VWAP
+
+# Toggle which alert types are active. Set to False to silence that
+# condition without deleting its logic — flip back to True to re-enable.
+ENABLE_BREAKOUT_ALERTS = False
+ENABLE_VOLUME_SPIKE_ALERTS = False
+ENABLE_PCT_MOVE_ALERTS = False
+ENABLE_VWAP_ALERTS = True
 # Note: index constituents change over time — double check against the latest
 # official lists before relying on this.
 # ---------------------------------------------
@@ -120,12 +139,37 @@ def check_ticker(ticker: str):
         breakout_up = close_price > prev_high
         breakout_down = close_price < prev_low
 
+        prev_close = prev_day["Close"]
+        pct_change = ((close_price - prev_close) / prev_close) * 100
+        pct_move_up = pct_change >= PCT_MOVE_THRESHOLD
+        pct_move_down = pct_change <= -PCT_MOVE_THRESHOLD
+
+        # VWAP: cumulative (typical price x volume) / cumulative volume,
+        # calculated fresh from today's candles only, up to the completed candle.
+        intraday_ist_index = intraday.index.tz_convert(IST)
+        today_date_check = candle_time_ist.date()
+        day_mask = (intraday_ist_index.date == today_date_check) & (intraday_ist_index <= candle_time_ist)
+        day_candles = intraday.loc[day_mask]
+
+        vwap = None
+        vwap_deviation_pct = 0
+        if not day_candles.empty and day_candles["Volume"].sum() > 0:
+            typical_price = (day_candles["High"] + day_candles["Low"] + day_candles["Close"]) / 3
+            cum_pv = (typical_price * day_candles["Volume"]).cumsum()
+            cum_vol = day_candles["Volume"].cumsum()
+            vwap = (cum_pv / cum_vol).iloc[-1]
+            vwap_deviation_pct = ((close_price - vwap) / vwap) * 100
+
+        vwap_move_up = vwap is not None and vwap_deviation_pct >= VWAP_DEVIATION_PCT
+        vwap_move_down = vwap is not None and vwap_deviation_pct <= -VWAP_DEVIATION_PCT
+
         print(f"[{ticker}] {time_str} close={close_price:.2f} prevHigh={prev_high:.2f} "
-              f"prevLow={prev_low:.2f} volRatio={vol_ratio:.2f}x")
+              f"prevLow={prev_low:.2f} volRatio={vol_ratio:.2f}x pctChange={pct_change:.2f}% "
+              f"vwap={vwap if vwap is None else round(vwap,2)} vwapDev={vwap_deviation_pct:.2f}%")
 
         today_date = candle_time_ist.date()
 
-        if breakout_up:
+        if breakout_up and ENABLE_BREAKOUT_ALERTS:
             key = f"{ticker}-{today_date}-UP"
             if key not in already_alerted:
                 send_telegram_message(
@@ -135,7 +179,7 @@ def check_ticker(ticker: str):
                 )
                 already_alerted.add(key)
 
-        if breakout_down:
+        if breakout_down and ENABLE_BREAKOUT_ALERTS:
             key = f"{ticker}-{today_date}-DOWN"
             if key not in already_alerted:
                 send_telegram_message(
@@ -145,13 +189,53 @@ def check_ticker(ticker: str):
                 )
                 already_alerted.add(key)
 
-        if volume_spike:
+        if volume_spike and ENABLE_VOLUME_SPIKE_ALERTS:
             key = f"{ticker}-{today_date}-VOLSPIKE-{candle_time_ist.strftime('%H%M')}"
             if key not in already_alerted:
                 send_telegram_message(
                     f"🟡 Volume Spike: {ticker}\n"
                     f"{vol_ratio:.2f}x the last {CANDLE_LOOKBACK} candles' average\n"
                     f"Price: {close_price:.2f}\n"
+                    f"Candle closed at {time_str} IST"
+                )
+                already_alerted.add(key)
+
+        if pct_move_up and ENABLE_PCT_MOVE_ALERTS:
+            key = f"{ticker}-{today_date}-PCTUP"
+            if key not in already_alerted:
+                send_telegram_message(
+                    f"🟢 {PCT_MOVE_THRESHOLD}%+ Move UP: {ticker}\n"
+                    f"Price {close_price:.2f} is {pct_change:+.2f}% vs prev close {prev_close:.2f}\n"
+                    f"Candle closed at {time_str} IST"
+                )
+                already_alerted.add(key)
+
+        if pct_move_down and ENABLE_PCT_MOVE_ALERTS:
+            key = f"{ticker}-{today_date}-PCTDOWN"
+            if key not in already_alerted:
+                send_telegram_message(
+                    f"🔴 {PCT_MOVE_THRESHOLD}%+ Move DOWN: {ticker}\n"
+                    f"Price {close_price:.2f} is {pct_change:+.2f}% vs prev close {prev_close:.2f}\n"
+                    f"Candle closed at {time_str} IST"
+                )
+                already_alerted.add(key)
+
+        if vwap_move_up and ENABLE_VWAP_ALERTS:
+            key = f"{ticker}-{today_date}-VWAPUP-{candle_time_ist.strftime('%H%M')}"
+            if key not in already_alerted:
+                send_telegram_message(
+                    f"🟢 {VWAP_DEVIATION_PCT}%+ Above VWAP: {ticker}\n"
+                    f"Price {close_price:.2f} is {vwap_deviation_pct:+.2f}% vs VWAP {vwap:.2f}\n"
+                    f"Candle closed at {time_str} IST"
+                )
+                already_alerted.add(key)
+
+        if vwap_move_down and ENABLE_VWAP_ALERTS:
+            key = f"{ticker}-{today_date}-VWAPDOWN-{candle_time_ist.strftime('%H%M')}"
+            if key not in already_alerted:
+                send_telegram_message(
+                    f"🔴 {VWAP_DEVIATION_PCT}%+ Below VWAP: {ticker}\n"
+                    f"Price {close_price:.2f} is {vwap_deviation_pct:+.2f}% vs VWAP {vwap:.2f}\n"
                     f"Candle closed at {time_str} IST"
                 )
                 already_alerted.add(key)
