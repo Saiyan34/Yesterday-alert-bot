@@ -91,7 +91,25 @@ ENABLE_VWAP_ALERTS = True
 # official lists before relying on this.
 # ---------------------------------------------
 
-already_alerted = set()  # avoids repeat alerts same day/direction
+import json
+
+STATE_FILE = "alerted_state.json"
+
+
+def load_state():
+    try:
+        with open(STATE_FILE, "r") as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+
+def save_state(state_set):
+    with open(STATE_FILE, "w") as f:
+        json.dump(list(state_set), f)
+
+
+already_alerted = load_state()  # loaded from file so it persists across GitHub Actions runs
 
 
 def send_telegram_message(text: str):
@@ -245,11 +263,11 @@ def check_ticker(ticker: str):
 
 
 def main():
-    print("Starting Nifty 100 + Gold/Silver alert monitor. Ctrl+C to stop.")
-    while True:
-        for ticker in WATCHLIST:
-            check_ticker(ticker)
-        time.sleep(CHECK_INTERVAL_SECONDS)
+    print("Running one check cycle (GitHub Actions mode)...")
+    for ticker in WATCHLIST:
+        check_ticker(ticker)
+    save_state(already_alerted)
+    print("Done. State saved.")
 
 
 if __name__ == "__main__":
