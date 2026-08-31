@@ -79,7 +79,7 @@ BANK_NIFTY = [
 WATCHLIST = list(dict.fromkeys(NIFTY_50 + NIFTY_NEXT_50 + BANK_NIFTY + COMMODITIES))
 
 PCT_MOVE_THRESHOLD = 1.0       # alert if price is +/- this % vs yesterday's close
-VWAP_DEVIATION_PCT = 1.0       # alert if price is +/- this % vs today's VWAP
+VWAP_DEVIATION_PCT = 0.75       # alert if price is +/- this % vs today's VWAP
 
 # Toggle which alert types are active. Set to False to silence that
 # condition without deleting its logic — flip back to True to re-enable.
